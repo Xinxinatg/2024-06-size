@@ -454,90 +454,197 @@ contract BuyCreditMarketLendTest is BaseTest {
             _before.bob.borrowATokenBalance + cash - Math.mulDivUp(cash, swapFeePercent, PERCENT)
         );
     }
+function testFuzz_BuyCreditMarket_buyCreditMarket_exactAmountIn_parametric(
+    uint256 V1,
+    uint256 V2,
+    uint256 deltaT1,
+    uint256 deltaT2,
+    uint256 apr1,
+    uint256 apr2
+) public {
+    vm.warp(123 days);
 
-    function testFuzz_BuyCreditMarket_buyCreditMarket_exactAmountIn_parametric(
-        uint256 V1,
-        uint256 V2,
-        uint256 deltaT1,
-        uint256 deltaT2,
-        uint256 apr1,
-        uint256 apr2
-    ) public {
-        vm.warp(123 days);
+    _deposit(alice, weth, MAX_AMOUNT_WETH);
+    _deposit(bob, usdc, 2 * MAX_AMOUNT_USDC);
+    _deposit(candy, usdc, 2 * MAX_AMOUNT_USDC);
 
-        _deposit(alice, weth, MAX_AMOUNT_WETH);
-        _deposit(bob, usdc, 2 * MAX_AMOUNT_USDC);
-        _deposit(candy, usdc, 2 * MAX_AMOUNT_USDC);
+    apr1 = bound(apr1, 0, MAX_RATE);
+    deltaT1 = bound(deltaT1, size.riskConfig().minTenor, MAX_TENOR);
+    V1 = bound(V1, size.riskConfig().minimumCreditBorrowAToken, MAX_AMOUNT_USDC);
 
-        apr1 = bound(apr1, 0, MAX_RATE);
-        deltaT1 = bound(deltaT1, size.riskConfig().minTenor, MAX_TENOR);
-        V1 = bound(V1, size.riskConfig().minimumCreditBorrowAToken, MAX_AMOUNT_USDC);
+    vm.log("Initial Parameters:");
+    vm.log("apr1: ", apr1);
+    vm.log("deltaT1: ", deltaT1);
+    vm.log("V1: ", V1);
 
-        _sellCreditLimit(alice, YieldCurveHelper.pointCurve(deltaT1, int256(apr1)));
+    _sellCreditLimit(alice, YieldCurveHelper.pointCurve(deltaT1, int256(apr1)));
 
-        uint256 debtPositionId = _buyCreditMarket(bob, alice, RESERVED_ID, V1, deltaT1, true);
-        uint256 creditPositionId = size.getCreditPositionIdsByDebtPositionId(debtPositionId)[0];
-        uint256 A1 = size.getCreditPosition(creditPositionId).credit;
+    uint256 debtPositionId = _buyCreditMarket(bob, alice, RESERVED_ID, V1, deltaT1, true);
+    uint256 creditPositionId = size.getCreditPositionIdsByDebtPositionId(debtPositionId)[0];
+    uint256 A1 = size.getCreditPosition(creditPositionId).credit;
 
-        deltaT2 = size.riskConfig().minTenor + bound(deltaT2, 0, deltaT1);
-        vm.assume(deltaT1 >= deltaT2);
+    vm.log("Debt and Credit Position:");
+    vm.log("debtPositionId: ", debtPositionId);
+    vm.log("creditPositionId: ", creditPositionId);
+    vm.log("A1 (Initial Credit): ", A1);
 
-        vm.warp(block.timestamp + (deltaT1 - deltaT2));
-        apr2 = bound(apr2, 0, MAX_RATE);
-        uint256 r2 = Math.aprToRatePerTenor(apr2, deltaT2);
-        V2 = bound(V2, size.riskConfig().minimumCreditBorrowAToken, MAX_AMOUNT_USDC);
-        _sellCreditLimit(bob, YieldCurveHelper.pointCurve(deltaT2, int256(apr2)));
+    deltaT2 = size.riskConfig().minTenor + bound(deltaT2, 0, deltaT1);
+    vm.assume(deltaT1 >= deltaT2);
 
-        Vars memory _before = _state();
+    vm.warp(block.timestamp + (deltaT1 - deltaT2));
+    apr2 = bound(apr2, 0, MAX_RATE);
+    uint256 r2 = Math.aprToRatePerTenor(apr2, deltaT2);
+    V2 = bound(V2, size.riskConfig().minimumCreditBorrowAToken, MAX_AMOUNT_USDC);
 
-        vm.prank(candy);
-        try size.buyCreditMarket(
-            BuyCreditMarketParams({
-                borrower: address(0),
-                creditPositionId: creditPositionId,
-                amount: V2,
-                tenor: type(uint256).max,
-                deadline: block.timestamp,
-                minAPR: 0,
-                exactAmountIn: true
-            })
-        ) {
-            Vars memory _after = _state();
+    vm.log("Updated Parameters:");
+    vm.log("apr2: ", apr2);
+    vm.log("deltaT2: ", deltaT2);
+    vm.log("V2: ", V2);
 
-            uint256 Vmax = Math.mulDivDown(A1, PERCENT, PERCENT + r2);
+    _sellCreditLimit(bob, YieldCurveHelper.pointCurve(deltaT2, int256(apr2)));
 
-            uint256 A2 = Math.mulDivDown(
-                V2 - (V2 == Vmax ? 0 : size.feeConfig().fragmentationFee), /* f */ PERCENT + r2, PERCENT
+    Vars memory _before = _state();
+
+    vm.prank(candy);
+    try size.buyCreditMarket(
+        BuyCreditMarketParams({
+            borrower: address(0),
+            creditPositionId: creditPositionId,
+            amount: V2,
+            tenor: type(uint256).max,
+            deadline: block.timestamp,
+            minAPR: 0,
+            exactAmountIn: true
+        })
+    ) {
+        Vars memory _after = _state();
+
+        uint256 Vmax = Math.mulDivDown(A1, PERCENT, PERCENT + r2);
+
+        uint256 A2 = Math.mulDivDown(
+            V2 - (V2 == Vmax ? 0 : size.feeConfig().fragmentationFee), /* f */ PERCENT + r2, PERCENT
+        );
+
+        vm.log("Final Calculations:");
+        vm.log("Vmax: ", Vmax);
+        vm.log("A2 (Adjusted Credit): ", A2);
+
+        if (V2 == Vmax) {
+            assertEq(size.getCreditPosition(creditPositionId).lender, candy);
+            assertEq(
+                A2,
+                size.getCreditPositionsByDebtPositionId(debtPositionId)[size.getCreditPositionsByDebtPositionId(
+                    debtPositionId
+                ).length - 1].credit
             );
-
-            if (V2 == Vmax) {
-                assertEq(size.getCreditPosition(creditPositionId).lender, candy);
-                assertEq(
-                    A2,
-                    size.getCreditPositionsByDebtPositionId(debtPositionId)[size.getCreditPositionsByDebtPositionId(
-                        debtPositionId
-                    ).length - 1].credit
-                );
-            } else {
-                assertEqApprox(
-                    A2,
-                    size.getCreditPositionsByDebtPositionId(debtPositionId)[size.getCreditPositionsByDebtPositionId(
-                        debtPositionId
-                    ).length - 1].credit,
-                    1e6
-                );
-            }
-            assertEq(_after.candy.borrowATokenBalance, _before.candy.borrowATokenBalance - V2);
-        } catch (bytes memory err) {
-            assertIn(
-                bytes4(err),
-                [
-                    Errors.NOT_ENOUGH_CASH.selector,
-                    Errors.NOT_ENOUGH_CREDIT.selector,
-                    Errors.CREDIT_LOWER_THAN_MINIMUM_CREDIT.selector,
-                    Errors.CREDIT_LOWER_THAN_MINIMUM_CREDIT_OPENING.selector
-                ]
+        } else {
+            assertEqApprox(
+                A2,
+                size.getCreditPositionsByDebtPositionId(debtPositionId)[size.getCreditPositionsByDebtPositionId(
+                    debtPositionId
+                ).length - 1].credit,
+                1e6
             );
         }
+        assertEq(_after.candy.borrowATokenBalance, _before.candy.borrowATokenBalance - V2);
+    } catch (bytes memory err) {
+        vm.log("Error Occurred:");
+        vm.logBytes(err);
+        assertIn(
+            bytes4(err),
+            [
+                Errors.NOT_ENOUGH_CASH.selector,
+                Errors.NOT_ENOUGH_CREDIT.selector,
+                Errors.CREDIT_LOWER_THAN_MINIMUM_CREDIT.selector,
+                Errors.CREDIT_LOWER_THAN_MINIMUM_CREDIT_OPENING.selector
+            ]
+        );
     }
+}
+
+    // function testFuzz_BuyCreditMarket_buyCreditMarket_exactAmountIn_parametric(
+    //     uint256 V1,
+    //     uint256 V2,
+    //     uint256 deltaT1,
+    //     uint256 deltaT2,
+    //     uint256 apr1,
+    //     uint256 apr2
+    // ) public {
+    //     vm.warp(123 days);
+
+    //     _deposit(alice, weth, MAX_AMOUNT_WETH);
+    //     _deposit(bob, usdc, 2 * MAX_AMOUNT_USDC);
+    //     _deposit(candy, usdc, 2 * MAX_AMOUNT_USDC);
+
+    //     apr1 = bound(apr1, 0, MAX_RATE);
+    //     deltaT1 = bound(deltaT1, size.riskConfig().minTenor, MAX_TENOR);
+    //     V1 = bound(V1, size.riskConfig().minimumCreditBorrowAToken, MAX_AMOUNT_USDC);
+
+    //     _sellCreditLimit(alice, YieldCurveHelper.pointCurve(deltaT1, int256(apr1)));
+
+    //     uint256 debtPositionId = _buyCreditMarket(bob, alice, RESERVED_ID, V1, deltaT1, true);
+    //     uint256 creditPositionId = size.getCreditPositionIdsByDebtPositionId(debtPositionId)[0];
+    //     uint256 A1 = size.getCreditPosition(creditPositionId).credit;
+
+    //     deltaT2 = size.riskConfig().minTenor + bound(deltaT2, 0, deltaT1);
+    //     vm.assume(deltaT1 >= deltaT2);
+
+    //     vm.warp(block.timestamp + (deltaT1 - deltaT2));
+    //     apr2 = bound(apr2, 0, MAX_RATE);
+    //     uint256 r2 = Math.aprToRatePerTenor(apr2, deltaT2);
+    //     V2 = bound(V2, size.riskConfig().minimumCreditBorrowAToken, MAX_AMOUNT_USDC);
+    //     _sellCreditLimit(bob, YieldCurveHelper.pointCurve(deltaT2, int256(apr2)));
+
+    //     Vars memory _before = _state();
+
+    //     vm.prank(candy);
+    //     try size.buyCreditMarket(
+    //         BuyCreditMarketParams({
+    //             borrower: address(0),
+    //             creditPositionId: creditPositionId,
+    //             amount: V2,
+    //             tenor: type(uint256).max,
+    //             deadline: block.timestamp,
+    //             minAPR: 0,
+    //             exactAmountIn: true
+    //         })
+    //     ) {
+    //         Vars memory _after = _state();
+
+    //         uint256 Vmax = Math.mulDivDown(A1, PERCENT, PERCENT + r2);
+
+    //         uint256 A2 = Math.mulDivDown(
+    //             V2 - (V2 == Vmax ? 0 : size.feeConfig().fragmentationFee), /* f */ PERCENT + r2, PERCENT
+    //         );
+
+    //         if (V2 == Vmax) {
+    //             assertEq(size.getCreditPosition(creditPositionId).lender, candy);
+    //             assertEq(
+    //                 A2,
+    //                 size.getCreditPositionsByDebtPositionId(debtPositionId)[size.getCreditPositionsByDebtPositionId(
+    //                     debtPositionId
+    //                 ).length - 1].credit
+    //             );
+    //         } else {
+    //             assertEqApprox(
+    //                 A2,
+    //                 size.getCreditPositionsByDebtPositionId(debtPositionId)[size.getCreditPositionsByDebtPositionId(
+    //                     debtPositionId
+    //                 ).length - 1].credit,
+    //                 1e6
+    //             );
+    //         }
+    //         assertEq(_after.candy.borrowATokenBalance, _before.candy.borrowATokenBalance - V2);
+    //     } catch (bytes memory err) {
+    //         assertIn(
+    //             bytes4(err),
+    //             [
+    //                 Errors.NOT_ENOUGH_CASH.selector,
+    //                 Errors.NOT_ENOUGH_CREDIT.selector,
+    //                 Errors.CREDIT_LOWER_THAN_MINIMUM_CREDIT.selector,
+    //                 Errors.CREDIT_LOWER_THAN_MINIMUM_CREDIT_OPENING.selector
+    //             ]
+    //         );
+    //     }
+    // }
 }
