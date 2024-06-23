@@ -472,10 +472,10 @@ function testFuzz_BuyCreditMarket_buyCreditMarket_exactAmountIn_parametric(
     deltaT1 = bound(deltaT1, size.riskConfig().minTenor, MAX_TENOR);
     V1 = bound(V1, size.riskConfig().minimumCreditBorrowAToken, MAX_AMOUNT_USDC);
 
-    vm.log("Initial Parameters:");
-    vm.log("apr1: ", apr1);
-    vm.log("deltaT1: ", deltaT1);
-    vm.log("V1: ", V1);
+    emit log("Initial Parameters:");
+    emit log_named_uint("apr1", apr1);
+    emit log_named_uint("deltaT1", deltaT1);
+    emit log_named_uint("V1", V1);
 
     _sellCreditLimit(alice, YieldCurveHelper.pointCurve(deltaT1, int256(apr1)));
 
@@ -483,10 +483,10 @@ function testFuzz_BuyCreditMarket_buyCreditMarket_exactAmountIn_parametric(
     uint256 creditPositionId = size.getCreditPositionIdsByDebtPositionId(debtPositionId)[0];
     uint256 A1 = size.getCreditPosition(creditPositionId).credit;
 
-    vm.log("Debt and Credit Position:");
-    vm.log("debtPositionId: ", debtPositionId);
-    vm.log("creditPositionId: ", creditPositionId);
-    vm.log("A1 (Initial Credit): ", A1);
+    emit log("Debt and Credit Position:");
+    emit log_named_uint("debtPositionId", debtPositionId);
+    emit log_named_uint("creditPositionId", creditPositionId);
+    emit log_named_uint("A1 (Initial Credit)", A1);
 
     deltaT2 = size.riskConfig().minTenor + bound(deltaT2, 0, deltaT1);
     vm.assume(deltaT1 >= deltaT2);
@@ -496,10 +496,10 @@ function testFuzz_BuyCreditMarket_buyCreditMarket_exactAmountIn_parametric(
     uint256 r2 = Math.aprToRatePerTenor(apr2, deltaT2);
     V2 = bound(V2, size.riskConfig().minimumCreditBorrowAToken, MAX_AMOUNT_USDC);
 
-    vm.log("Updated Parameters:");
-    vm.log("apr2: ", apr2);
-    vm.log("deltaT2: ", deltaT2);
-    vm.log("V2: ", V2);
+    emit log("Updated Parameters:");
+    emit log_named_uint("apr2", apr2);
+    emit log_named_uint("deltaT2", deltaT2);
+    emit log_named_uint("V2", V2);
 
     _sellCreditLimit(bob, YieldCurveHelper.pointCurve(deltaT2, int256(apr2)));
 
@@ -525,9 +525,9 @@ function testFuzz_BuyCreditMarket_buyCreditMarket_exactAmountIn_parametric(
             V2 - (V2 == Vmax ? 0 : size.feeConfig().fragmentationFee), /* f */ PERCENT + r2, PERCENT
         );
 
-        vm.log("Final Calculations:");
-        vm.log("Vmax: ", Vmax);
-        vm.log("A2 (Adjusted Credit): ", A2);
+        emit log("Final Calculations:");
+        emit log_named_uint("Vmax", Vmax);
+        emit log_named_uint("A2 (Adjusted Credit)", A2);
 
         if (V2 == Vmax) {
             assertEq(size.getCreditPosition(creditPositionId).lender, candy);
@@ -548,8 +548,8 @@ function testFuzz_BuyCreditMarket_buyCreditMarket_exactAmountIn_parametric(
         }
         assertEq(_after.candy.borrowATokenBalance, _before.candy.borrowATokenBalance - V2);
     } catch (bytes memory err) {
-        vm.log("Error Occurred:");
-        vm.logBytes(err);
+        emit log("Error Occurred:");
+        emit log_bytes(err);
         assertIn(
             bytes4(err),
             [
